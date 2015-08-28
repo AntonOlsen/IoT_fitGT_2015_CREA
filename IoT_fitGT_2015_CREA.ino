@@ -57,7 +57,16 @@ int LED_RIGHT2 = P8_2;   // GND for LED
 
 int ANALOG_IN = P6_0;    // Analog Input
 
-WiFiServer server(80);
+String response;
+int    executed = 0;
+
+WiFiClient client;              // Initialize the WiFi client.
+char server[] = "crea.arduinogt.com";   // server address:
+//IPAddress server(50,62,217,1);
+
+unsigned long lastConnectionTime = 0;                // last time you connected to the server, in milliseconds
+const unsigned long postingInterval = 1L * 1000L;    // delay between updates, in milliseconds
+
 
 void setup() {
   int ctr=0;
@@ -115,114 +124,121 @@ void setup() {
   analogWrite( LED_RIGHT1, 128 );              // Turn on the left LED when we have an IP.
 
   Serial.println("\nIP Address obtained");
+  analogWrite( LED_RIGHT1, 128 );            // Turn on the right LED to indicate we have an IP.
   
   // you're connected now, so print out the status  
   printWifiStatus();
 
-  Serial.println("Starting webserver on port 80");
-  server.begin();                            // Start the web server on port 80
-  analogWrite( LED_RIGHT1, 128 );            // Turn on the right LED to indicate the webserver is started.
-  Serial.println("Webserver started!");
 }
 
 void loop() {
   int i = 0;
   int sensor = 0;
-  WiFiClient client = server.available();   // listen for incoming clients
+
+  // Used for Ultrasonic  
+  int   duration;
+  float distance;
+  int   conversion;
   
   sensor = analogRead( ANALOG_IN );
-  
-  if (client) {                             // if you get a client,
-    Serial.println("new client");           // print a message out the serial port
-    char buffer[150] = {0};                 // make a buffer to hold incoming data
-    while (client.connected()) {            // loop while the client's connected
-      if (client.available()) {             // if there's bytes to read from the client,
-        char c = client.read();             // read a byte, then
-        Serial.write(c);                    // print it out the serial monitor
-        if (c == '\n') {                    // if the byte is a newline character
 
-          // if the current line is blank, you got two newline characters in a row.
-          // that's the end of the client HTTP request, so send a response:
-          if (strlen(buffer) == 0) {
-            // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
-            // and a content-type so the client knows what's coming, then a blank line:
-            client.println("HTTP/1.1 200 OK");
-            client.println("Content-type:text/html");
-            client.println();
-
-            // the content of the HTTP response follows the header:
-            client.println("<html><head><title>Energia CC3200 WiFi Web Server</title></head><body align=center>");
-            client.println("<h1 align=center><font color=\"red\">Welcome to the CC3200 WiFi Web Server</font></h1>");
-            
-            client.println(" <button onclick=\"location.href='/F'\">Forward</button><br>");
-            client.println(" <button onclick=\"location.href='/L'\">Left</button>");
-            client.println("&nbsp; <button onclick=\"location.href='/S'\">STOP</button> &nbsp;");
-            client.println(" <button onclick=\"location.href='/R'\">Right</button><br>");
-            client.println(" <button onclick=\"location.href='/B'\">Back</button><br>");
-
-            client.println(" <br><br>Analog: ");
-            client.println(sensor);
-            client.println(" <br>");
-
-            // The HTTP response ends with another blank line:
-            client.println();
-            // break out of the while loop:
-            break;
-          }
-          else {      // if you got a newline, then clear the buffer:
-            memset(buffer, 0, 150);
-            i = 0;
-          }
-        }
-        else if (c != '\r') {    // if you got anything else but a carriage return character,
-          buffer[i++] = c;      // add it to the end of the currentLine
-        }
-
-        // Forward or Back
-        if (endsWith(buffer, "GET /F")) {
-          digitalWrite(WALK_EN, HIGH);   // Enable the motor
-          digitalWrite(WALK_DIR,HIGH);   // Go Forward
-          digitalWrite(TURN_EN, LOW);    // Stop Turning
-          digitalWrite(TURN_DIR, LOW);   // Stop Turning
-        }
-        if (endsWith(buffer, "GET /B")) {
-          digitalWrite(WALK_EN,  HIGH);  // Enable the motor
-          digitalWrite(WALK_DIR, LOW);   // Go Back
-          digitalWrite(TURN_EN, LOW);    // Stop Turning
-          digitalWrite(TURN_DIR, LOW);   // Stop Turning
-        }
-        
-        // Left or Right
-        if (endsWith(buffer, "GET /L")) {
-          digitalWrite(TURN_EN,  HIGH);    // Enable the motor
-          digitalWrite(TURN_DIR, HIGH);    // Turn Left
-        }
-        if (endsWith(buffer, "GET /R")) {
-          digitalWrite(TURN_EN,  HIGH);    // Enable the motor
-          digitalWrite(TURN_DIR, LOW);     // Turn Right
-        }
-
-        // STOP
-        if (endsWith(buffer, "GET /S")) {
-          digitalWrite(WALK_EN, LOW);    // Disable the motor
-          digitalWrite(TURN_EN, LOW);    // Disable the motor
-          digitalWrite(WALK_DIR, LOW);   // Disable the motor
-          digitalWrite(TURN_DIR, LOW);   // Disable the motor
-        }   
-
-        // TEST
-        if (endsWith(buffer, "GET /T")) {
-          digitalWrite(WALK_EN, HIGH);    // Set all pins high
-          digitalWrite(WALK_DIR,HIGH);    // Set all pins high
-          digitalWrite(TURN_EN, HIGH);    // Set all pins high
-          digitalWrite(TURN_DIR,HIGH);    // Set all pins high
-        }   
-      }
-    }
+  // if there's incoming data from the net connection.
+  // send it out the serial port.  This is for debugging
+  // purposes only:
+  while (client.available()) {
+    char c = client.read();
+    Serial.write(c);
     
-    // close the connection:
-    client.stop();
-    Serial.println("client disonnected");
+    response += c;
+    int st = response.indexOf('<');
+    int ed = response.indexOf('>');
+    if (st > 0 and ed > 0){
+      response = response.substring(st+1,ed);
+      executed = true;
+      break;
+    }
+  }
+
+  if (executed) {
+
+    executed=0;
+    Serial.println();
+    Serial.print("response: ");
+    Serial.println( response );
+    Serial.println();
+
+    // Forward or Back
+    if (response.indexOf("FORWARD")>0) {
+      digitalWrite(WALK_EN, HIGH);   // Enable the motor
+      digitalWrite(WALK_DIR,HIGH);   // Go Forward
+      digitalWrite(TURN_EN, LOW);    // Stop Turning
+      digitalWrite(TURN_DIR, LOW);   // Stop Turning
+    }
+    if (response.indexOf("BACK")>0) {
+      digitalWrite(WALK_EN,  HIGH);  // Enable the motor
+      digitalWrite(WALK_DIR, LOW);   // Go Back
+      digitalWrite(TURN_EN, LOW);    // Stop Turning
+      digitalWrite(TURN_DIR, LOW);   // Stop Turning
+    }
+        
+    // Left or Right
+    if (response.indexOf("LEFT")>0) {
+      digitalWrite(TURN_EN,  HIGH);    // Enable the motor
+      digitalWrite(TURN_DIR, HIGH);    // Turn Left
+    }
+    if (response.indexOf("RIGHT")>0) {
+      digitalWrite(TURN_EN,  HIGH);    // Enable the motor
+      digitalWrite(TURN_DIR, LOW);     // Turn Right
+    }
+
+    // STOP
+    if (response.indexOf("STOP")>0) {
+      digitalWrite(WALK_EN, LOW);    // Disable the motor
+      digitalWrite(TURN_EN, LOW);    // Disable the motor
+      digitalWrite(WALK_DIR, LOW);   // Disable the motor
+      digitalWrite(TURN_DIR, LOW);   // Disable the motor
+    }   
+    
+  }  
+  
+  // if ten seconds have passed since your last connection,
+  // then connect again and send data:
+  if (millis() - lastConnectionTime > postingInterval) {
+    httpRequest(sensor);
+  }
+  
+}
+
+// this method makes a HTTP connection to the server:
+void httpRequest(int sensor) {
+  // close any connection before send a new request.
+  // This will free the socket on the WiFi shield
+  client.stop();
+
+  // if there's a successful connection:
+  if (client.connect(server, 80)) {
+    Serial.println("connecting...");
+    
+    // send the HTTP PUT request:
+    client.print("GET /v1/aw/a1c8cea2b4bc73fbe71aa33b4d6feaf4");
+//    client.print(sensor);
+    client.println(" HTTP/1.1");
+    
+    client.print("Host: ");
+    client.println(server);
+    
+    client.println("Authorization: Basic MTc2MjIyYTI0OTYyNDJmODU4YzEwNmFiZmQ4YjUyNmE6MjA2ZjdlMjdjYWNmY2RlM2Y4MzQ3MjE2ZjVlMjZhMDM=");
+    
+    client.println("User-Agent: Energia/1.1");
+    client.println("Connection: close");
+    client.println();
+
+    // note the time that the connection was made:
+    lastConnectionTime = millis();
+  }
+  else {
+    // if you couldn't make a connection:
+    Serial.println("connection failed");
   }
 }
 
@@ -272,7 +288,4 @@ void printWifiStatus() {
   Serial.print("signal strength (RSSI):");
   Serial.print(rssi);
   Serial.println(" dBm");
-  // print where to go in a browser:
-  Serial.print("To see this page in action, open a browser to http://");
-  Serial.println(ip);
 }
